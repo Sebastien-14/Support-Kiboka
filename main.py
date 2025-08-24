@@ -183,11 +183,14 @@ async def panel_cmd(ctx):
 
     description = (
         "**__Contacter le Support de Kiboka__**\n\n"
-        "Le support est disponible 24H/24 et 7J/7.\n\n"
-        "**__Ticket Staff__** : Pour devenir staff, réclamer un rank up ou des rôles.\n"
-        "**__Ticket Partenariat__** : Pour signaler un problème ou faire un report.\n"
-        "**__Ticket Modérateur__** : Pour postuler comme modérateur.\n\n"
-        "⚠ Aucune demande de giveaway ici.\n\n"
+        "Le support du serveur est disponible 24H/24 et 7J/7\n\n"
+        "Il y a 3 catégories de tickets mis à votre disposition :\n\n"
+        "**__Ticket Staff__** : Pour devenir staff, réclamer un rank up ou récupérer des rôles.\n"
+        "Tout ce qui concerne les rôles et permissions.\n\n"
+        "**__Ticket Partenariat__** : Faire un report est important en cas de conflit avec un membre ou un staff pour signaler le problème.\n"
+        "Défends ton innocence si tu es muté injustement et explique la situation pour garantir des décisions justes.\n\n"
+        "**__Ticket Modérateur__** : Postuler pour devenir modérateur\n\n"
+        "⚠ Toutes les demandes concernant les giveaways et concours nitro ne sont pas pris en charge.\n\n"
         "- Support Kiboka"
     )
 
@@ -195,7 +198,7 @@ async def panel_cmd(ctx):
     embed = discord.Embed(title="Centre d'aide Kiboka", description=description, color=0x5865F2)
     view = PanelView(types_list)
     await channel.send(embed=embed, view=view)
-    await ctx.send("Panneau envoyé.")
+    await ctx.send("✅ Panneau envoyé.")
 
 # --- Lancer le bot ---
 bot.run(TOKEN)
