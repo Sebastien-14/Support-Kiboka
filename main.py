@@ -10,7 +10,7 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
-# --- Serveur Flask (nécessaire pour Render) ---
+# --- Serveur Flask (pour Render) ---
 app = Flask(__name__)
 
 @app.route('/')
@@ -22,11 +22,11 @@ def run_web():
     app.run(host='0.0.0.0', port=port)
 
 Thread(target=run_web).start()
+# ------------------------------------
 
 # --- Chargement des variables d'environnement ---
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
-
 if TOKEN is None:
     raise ValueError("Le token Discord n'a pas été trouvé ! Vérifie ton fichier .env")
 
@@ -37,7 +37,12 @@ INTENTS.message_content = True
 
 DB_FILE = "tickets.db"
 
-# --- Vue pour sélection de type de ticket ---
+# --- Vue du panneau ---
+class PanelView(discord.ui.View):
+    def __init__(self, types_list: List[str]):
+        super().__init__(timeout=None)
+        self.add_item(TicketTypeSelect(types_list))
+
 class TicketTypeSelect(discord.ui.Select):
     def __init__(self, types_list: List[str]):
         options = [discord.SelectOption(label=t) for t in types_list]
@@ -52,35 +57,46 @@ class TicketTypeSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         await create_ticket(interaction, self.values[0])
 
-class PanelView(discord.ui.View):
-    def __init__(self, types_list: List[str]):
-        super().__init__(timeout=None)
-        self.add_item(TicketTypeSelect(types_list))
+# --- Bot principal ---
+bot = commands.Bot(command_prefix="-", intents=INTENTS, help_command=None)
 
-# --- Vue pour fermer les tickets ---
+# --- Vue de confirmation de fermeture ---
+class ConfirmCloseView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Oui, fermer",
+        style=discord.ButtonStyle.danger,
+        custom_id="confirm_close_ticket"  # ✅ nécessaire pour persistance
+    )
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await save_transcript_and_close(interaction.channel)
+
+    @discord.ui.button(
+        label="Annuler",
+        style=discord.ButtonStyle.secondary,
+        custom_id="cancel_close_ticket"  # ✅ nécessaire pour persistance
+    )
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.message.delete()
+
+# --- Vue pour fermer un ticket ---
 class CloseTicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Fermer le ticket", style=discord.ButtonStyle.danger, custom_id="close_ticket_button")
+    @discord.ui.button(
+        label="Fermer le ticket",
+        style=discord.ButtonStyle.danger,
+        custom_id="close_ticket_button"  # ✅ nécessaire pour persistance
+    )
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("Confirmez-vous la fermeture ?", view=ConfirmCloseView(), ephemeral=True)
+        await interaction.response.send_message(
+            "Confirmez-vous la fermeture ?", view=ConfirmCloseView(), ephemeral=True
+        )
 
-class ConfirmCloseView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=60)
-
-    @discord.ui.button(label="Oui, fermer", style=discord.ButtonStyle.danger, custom_id="confirm_close_ticket")
-    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await save_transcript_and_close(interaction.channel)
-
-    @discord.ui.button(label="Annuler", style=discord.ButtonStyle.secondary, custom_id="cancel_close_ticket")
-    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.message.delete()
-
-# --- Bot principal ---
-bot = commands.Bot(command_prefix="-", intents=INTENTS, help_command=None)
-
+# --- Bot prêt ---
 @bot.event
 async def on_ready():
     bot.db = await aiosqlite.connect(DB_FILE)
@@ -93,38 +109,12 @@ async def on_ready():
         )
     """)
     await bot.db.commit()
-
-    # Ajouter les vues persistantes après redémarrage
-    types_list = ["Ticket Staff", "Ticket Partenariat", "Ticket Modérateur"]
-    bot.add_view(PanelView(types_list))
-    bot.add_view(CloseTicketView())
-    bot.add_view(ConfirmCloseView())
-
+    bot.add_view(ConfirmCloseView())       # ✅ vue persistante enregistrée
+    bot.add_view(CloseTicketView())        # ✅ vue persistante enregistrée
+    bot.add_view(PanelView(["Ticket Staff", "Ticket Partenariat", "Ticket Modérateur"]))  # ✅ select menu
     print(f"✅ Connecté en tant que {bot.user}")
 
-# --- Commande -panel ---
-@bot.command(name="panel")
-@commands.has_permissions(administrator=True)
-async def panel_cmd(ctx):
-    channel = bot.get_channel(1390037993854730371)
-    if not isinstance(channel, discord.TextChannel):
-        return await ctx.send("Salon introuvable.")
-
-    description = (
-        "**__Contacter le Support de Kiboka__**\n\n"
-        "Le support est disponible 24H/24 et 7J/7.\n\n"
-        "**__Ticket Staff__** : Pour devenir staff, rank up ou rôles.\n"
-        "**__Ticket Partenariat__** : Signaler un problème / report.\n"
-        "**__Ticket Modérateur__** : Postuler comme modérateur.\n\n"
-        "⚠ Pas de demandes liées aux giveaways ici."
-    )
-
-    types_list = ["Ticket Staff", "Ticket Partenariat", "Ticket Modérateur"]
-    embed = discord.Embed(title="Centre d'aide Kiboka", description=description, color=0x5865F2)
-    await channel.send(embed=embed, view=PanelView(types_list))
-    await ctx.send("📬 Panneau envoyé avec succès.")
-
-# --- Création d'un ticket ---
+# --- Création d’un ticket ---
 async def create_ticket(inter: discord.Interaction, ticket_type: str):
     try:
         await inter.response.defer(ephemeral=True)
@@ -164,10 +154,10 @@ async def create_ticket(inter: discord.Interaction, ticket_type: str):
         color=0x2ECC71
     )
     await channel.send(embed=embed, view=CloseTicketView())
-    await channel.send("<@&1393279127301128354> <@&1390390153595457726>")
-    await inter.followup.send(f"✅ Ticket créé ici : {channel.mention}", ephemeral=True)
+    await channel.send(f"<@&1393279127301128354> <@&1390390153595457726>")
+    await inter.followup.send(f"Ticket créé : {channel.mention}", ephemeral=True)
 
-# --- Fermeture du ticket avec sauvegarde ---
+# --- Sauvegarde et suppression du salon ---
 async def save_transcript_and_close(channel: discord.TextChannel):
     messages = [msg async for msg in channel.history(limit=None, oldest_first=True)]
     transcript = "".join(f"[{m.created_at}] {m.author}: {m.clean_content}\n" for m in messages)
@@ -183,6 +173,31 @@ async def save_transcript_and_close(channel: discord.TextChannel):
 
     await channel.delete()
 
+# --- Commande : panel ---
+@bot.command(name="panel")
+@commands.has_permissions(administrator=True)
+async def panel_cmd(ctx):
+    channel = bot.get_channel(1390037993854730371)
+    if not isinstance(channel, discord.TextChannel):
+        return await ctx.send("Salon introuvable.")
+
+    description = (
+        "**__Contacter le Support de Kiboka__**\n\n"
+        "Le support est disponible 24H/24 et 7J/7.\n\n"
+        "**__Ticket Staff__** : Pour devenir staff, réclamer un rank up ou des rôles.\n"
+        "**__Ticket Partenariat__** : Pour signaler un problème ou faire un report.\n"
+        "**__Ticket Modérateur__** : Pour postuler comme modérateur.\n\n"
+        "⚠ Aucune demande de giveaway ici.\n\n"
+        "- Support Kiboka"
+    )
+
+    types_list = ["Ticket Staff", "Ticket Partenariat", "Ticket Modérateur"]
+    embed = discord.Embed(title="Centre d'aide Kiboka", description=description, color=0x5865F2)
+    view = PanelView(types_list)
+    await channel.send(embed=embed, view=view)
+    await ctx.send("Panneau envoyé.")
+
 # --- Lancer le bot ---
 bot.run(TOKEN)
+
 
