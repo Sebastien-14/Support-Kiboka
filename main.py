@@ -1,5 +1,4 @@
 import os
-import io
 import html
 import asyncio
 from datetime import datetime, timezone
@@ -12,27 +11,28 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
-# --- Serveur Flask pour Render ---
+# --- Serveur Flask (nécessaire pour Render) ---
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Bot is running!"
+    return "Bot is alive!"
 
 def run_web():
-    app.run(host='0.0.0.0', port=8080)
+    port = int(os.environ.get("PORT", 8080))  # Render utilise le port 8080
+    app.run(host='0.0.0.0', port=port)
 
 Thread(target=run_web).start()
-# --------------------------------
+# ----------------------------------------------
 
-# --- Charger les variables d'environnement ---
+# Charger les variables d'environnement
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 if TOKEN is None:
     raise ValueError("Le token Discord n'a pas été trouvé ! Vérifie ton fichier .env")
 
-# --- Intents ---
+# Intents
 INTENTS = discord.Intents.default()
 INTENTS.members = True
 INTENTS.message_content = True
@@ -74,11 +74,15 @@ async def on_ready():
         )
     """)
     await bot.db.commit()
-    print(f"Connecté en tant que {bot.user}")
+    print(f"✅ Connecté en tant que {bot.user}")
 
 # --- Création ticket ---
 async def create_ticket(inter: discord.Interaction, ticket_type: str):
-    await inter.response.defer(ephemeral=True)
+    try:
+        await inter.response.defer(ephemeral=True)
+    except discord.InteractionResponded:
+        pass
+
     guild = inter.guild
     if guild is None:
         return await inter.followup.send("Commande invalide.", ephemeral=True)
@@ -111,10 +115,8 @@ async def create_ticket(inter: discord.Interaction, ticket_type: str):
         description=f"Bonjour {inter.user.mention}, un membre du staff va vous répondre.",
         color=0x2ECC71
     )
-    view = CloseTicketView()
-    await channel.send(embed=embed, view=view)
+    await channel.send(embed=embed, view=CloseTicketView())
     await channel.send(f"<@&1393279127301128354> <@&1390390153595457726>")
-
     await inter.followup.send(f"Ticket créé : {channel.mention}", ephemeral=True)
 
 # --- Fermeture ticket ---
@@ -147,8 +149,7 @@ async def save_transcript_and_close(channel: discord.TextChannel):
     with open(filename, "w", encoding="utf-8") as f:
         f.write(html_content)
 
-    guild = channel.guild
-    transcript_channel = guild.get_channel(1394765363073515560)
+    transcript_channel = channel.guild.get_channel(1394765363073515560)
     if isinstance(transcript_channel, discord.TextChannel):
         await transcript_channel.send(file=discord.File(filename))
 
@@ -164,12 +165,11 @@ async def panel_cmd(ctx):
 
     description = (
         "**__Contacter le Support de Kiboka__**\n\n"
-        "Le support du serveur est disponible 24H/24 et 7J/7\n\n"
-        "Il y a 3 catégories de tickets :\n\n"
-        "**__Ticket Staff__** : Pour devenir staff, réclamer un rank up ou récupérer des rôles.\n"
+        "Le support est disponible 24H/24 et 7J/7.\n\n"
+        "**__Ticket Staff__** : Pour devenir staff, réclamer un rank up ou des rôles.\n"
         "**__Ticket Partenariat__** : Pour signaler un problème ou faire un report.\n"
         "**__Ticket Modérateur__** : Pour postuler comme modérateur.\n\n"
-        "⚠ Pas de demandes liées aux concours nitro ici.\n\n"
+        "⚠ Aucune demande de giveaway ici.\n\n"
         "- Support Kiboka"
     )
 
@@ -179,24 +179,5 @@ async def panel_cmd(ctx):
     await channel.send(embed=embed, view=view)
     await ctx.send("Panneau envoyé.")
 
-import threading
-from flask import Flask
-import os
-
-app = Flask('')
-
-@app.route('/')
-def home():
-    return "Bot is alive!"
-
-def run():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
-
-# Démarrer le serveur dans un thread séparé
-threading.Thread(target=run).start()
-
-
 # --- Lancer le bot ---
 bot.run(TOKEN)
-
