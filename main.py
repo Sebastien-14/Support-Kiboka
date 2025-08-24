@@ -4,15 +4,30 @@ import html
 import asyncio
 from datetime import datetime, timezone
 from typing import List
+from threading import Thread
+from flask import Flask
 
 import aiosqlite
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
+# --- Serveur Flask pour Render ---
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+def run_web():
+    app.run(host='0.0.0.0', port=8080)
+
+Thread(target=run_web).start()
+# --------------------------------
+
 # --- Charger les variables d'environnement ---
 load_dotenv()
-TOKEN = os.getenv("DISCORD_TOKEN")  # Bien entre guillemets
+TOKEN = os.getenv("DISCORD_TOKEN")
 
 if TOKEN is None:
     raise ValueError("Le token Discord n'a pas été trouvé ! Vérifie ton fichier .env")
@@ -24,13 +39,11 @@ INTENTS.message_content = True
 
 DB_FILE = "tickets.db"
 
-
 # --- Vue du panneau ---
 class PanelView(discord.ui.View):
     def __init__(self, types_list: List[str]):
         super().__init__(timeout=None)
         self.add_item(TicketTypeSelect(types_list))
-
 
 class TicketTypeSelect(discord.ui.Select):
     def __init__(self, types_list: List[str]):
@@ -46,34 +59,26 @@ class TicketTypeSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         await create_ticket(interaction, self.values[0])
 
-
 # --- Bot principal ---
 bot = commands.Bot(command_prefix="-", intents=INTENTS, help_command=None)
 
-
 @bot.event
 async def on_ready():
-    # Créer la base de données si elle n'existe pas
     bot.db = await aiosqlite.connect(DB_FILE)
-    await bot.db.execute(
-        """
+    await bot.db.execute("""
         CREATE TABLE IF NOT EXISTS tickets (
             user_id INTEGER,
             channel_id INTEGER,
             type TEXT,
             created_at TEXT
         )
-        """
-    )
+    """)
     await bot.db.commit()
     print(f"Connecté en tant que {bot.user}")
 
-
 # --- Création ticket ---
 async def create_ticket(inter: discord.Interaction, ticket_type: str):
-    # Ack immédiat pour éviter l'erreur 404
     await inter.response.defer(ephemeral=True)
-
     guild = inter.guild
     if guild is None:
         return await inter.followup.send("Commande invalide.", ephemeral=True)
@@ -95,7 +100,6 @@ async def create_ticket(inter: discord.Interaction, ticket_type: str):
         overwrites=overwrites
     )
 
-    # Stocker le ticket avec datetime timezone-aware
     await bot.db.execute(
         "INSERT INTO tickets (user_id, channel_id, type, created_at) VALUES (?, ?, ?, ?)",
         (inter.user.id, channel.id, ticket_type, datetime.now(timezone.utc).isoformat())
@@ -111,9 +115,7 @@ async def create_ticket(inter: discord.Interaction, ticket_type: str):
     await channel.send(embed=embed, view=view)
     await channel.send(f"<@&1393279127301128354> <@&1390390153595457726>")
 
-    # Confirmation envoyée après la création du ticket
     await inter.followup.send(f"Ticket créé : {channel.mention}", ephemeral=True)
-
 
 # --- Fermeture ticket ---
 class CloseTicketView(discord.ui.View):
@@ -122,9 +124,7 @@ class CloseTicketView(discord.ui.View):
 
     @discord.ui.button(label="Fermer le ticket", style=discord.ButtonStyle.danger, custom_id="close_ticket_button")
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("Confirmez-vous la fermeture ?", view=ConfirmCloseView(),
-                                                ephemeral=True)
-
+        await interaction.response.send_message("Confirmez-vous la fermeture ?", view=ConfirmCloseView(), ephemeral=True)
 
 class ConfirmCloseView(discord.ui.View):
     def __init__(self):
@@ -138,7 +138,6 @@ class ConfirmCloseView(discord.ui.View):
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.message.delete()
 
-
 async def save_transcript_and_close(channel: discord.TextChannel):
     messages = [msg async for msg in channel.history(limit=None, oldest_first=True)]
     transcript = "".join(f"[{m.created_at}] {m.author}: {m.clean_content}\n" for m in messages)
@@ -148,7 +147,6 @@ async def save_transcript_and_close(channel: discord.TextChannel):
     with open(filename, "w", encoding="utf-8") as f:
         f.write(html_content)
 
-    # Envoi du transcript dans le salon spécifique
     guild = channel.guild
     transcript_channel = guild.get_channel(1394765363073515560)
     if isinstance(transcript_channel, discord.TextChannel):
@@ -156,8 +154,7 @@ async def save_transcript_and_close(channel: discord.TextChannel):
 
     await channel.delete()
 
-
-# --- Commande panel avec préfixe - ---
+# --- Commande panel ---
 @bot.command(name="panel")
 @commands.has_permissions(administrator=True)
 async def panel_cmd(ctx):
@@ -168,13 +165,11 @@ async def panel_cmd(ctx):
     description = (
         "**__Contacter le Support de Kiboka__**\n\n"
         "Le support du serveur est disponible 24H/24 et 7J/7\n\n"
-        "Il y a 3 catégories de tickets mis à votre disposition :\n\n"
+        "Il y a 3 catégories de tickets :\n\n"
         "**__Ticket Staff__** : Pour devenir staff, réclamer un rank up ou récupérer des rôles.\n"
-        "Tout ce qui concerne les rôles et permissions.\n\n"
-        "**__Ticket Partenariat__** : Faire un report est important en cas de conflit avec un membre ou un staff pour signaler le problème.\n"
-        "Défends ton innocence si tu es muté injustement et explique la situation pour garantir des décisions justes.\n\n"
-        "**__Ticket Modérateur__** : Postuler pour devenir modérateur\n\n"
-        "⚠ Toutes les demandes concernant les giveaways et concours nitro ne sont pas pris en charge.\n\n"
+        "**__Ticket Partenariat__** : Pour signaler un problème ou faire un report.\n"
+        "**__Ticket Modérateur__** : Pour postuler comme modérateur.\n\n"
+        "⚠ Pas de demandes liées aux concours nitro ici.\n\n"
         "- Support Kiboka"
     )
 
@@ -184,6 +179,6 @@ async def panel_cmd(ctx):
     await channel.send(embed=embed, view=view)
     await ctx.send("Panneau envoyé.")
 
-
 # --- Lancer le bot ---
 bot.run(TOKEN)
+
